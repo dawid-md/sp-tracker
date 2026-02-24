@@ -42,6 +42,7 @@ export interface TaskItem {
 }
 
 export type TaskTemplatePayload = Record<string, unknown>;
+export type TaskPayload = Record<string, unknown>;
 
 function buildListApiUrl(listTitle: string, pathSuffix: string): string {
   return `${SITE_URL}/_api/web/lists/getByTitle('${encodeURIComponent(listTitle)}')${pathSuffix}`;
@@ -118,6 +119,60 @@ export async function fetchTasksItems(): Promise<TaskItem[]> {
 
   const data = (await response.json()) as { value?: TaskItem[] };
   return Array.isArray(data.value) ? data.value : [];
+}
+
+export async function createTaskItem(payload: TaskPayload): Promise<TaskItem> {
+  const digest = await getRequestDigest();
+  const endpoint = buildListApiUrl(TASKS_LIST_TITLE, "/items");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json;odata=nometadata",
+      "Content-Type": "application/json;odata=nometadata",
+      "X-RequestDigest": digest,
+    },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  await ensureOkResponse(response);
+  return (await response.json()) as TaskItem;
+}
+
+export async function updateTaskItem(itemId: number, payload: TaskPayload): Promise<void> {
+  const digest = await getRequestDigest();
+  const endpoint = buildListApiUrl(TASKS_LIST_TITLE, `/items(${itemId})`);
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json;odata=nometadata",
+      "Content-Type": "application/json;odata=nometadata",
+      "X-RequestDigest": digest,
+      "X-HTTP-Method": "MERGE",
+      "IF-MATCH": "*",
+    },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  await ensureOkResponse(response);
+}
+
+export async function deleteTaskItem(itemId: number): Promise<void> {
+  const digest = await getRequestDigest();
+  const endpoint = buildListApiUrl(TASKS_LIST_TITLE, `/items(${itemId})`);
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json;odata=nometadata",
+      "X-RequestDigest": digest,
+      "X-HTTP-Method": "DELETE",
+      "IF-MATCH": "*",
+    },
+    credentials: "include",
+  });
+
+  await ensureOkResponse(response);
 }
 
 export async function fetchFieldChoices(internalName: string): Promise<string[]> {

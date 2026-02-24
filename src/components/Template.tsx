@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  createTaskItem,
   createTaskTemplateItem,
   deleteTaskTemplateItem,
   extractErrorMessage,
@@ -7,6 +8,7 @@ import {
   fetchTaskTemplateItems,
   normalizeMultiChoiceValue,
   resolvePersonIdByEmail,
+  type TaskPayload,
   updateTaskTemplateItem,
   type TaskTemplateItem,
   type TaskTemplatePayload,
@@ -74,14 +76,22 @@ function XIcon() {
   );
 }
 
-function normalizeDeadlineMode(value: string): "weekly" | "monthly" | "" {
+function normalizeDeadlineMode(value: string): "daily" | "weekly" | "monthly" | "other" | "" {
   const normalized = value.trim().toLowerCase();
+  if (normalized === "daily") {
+    return "daily";
+  }
+
   if (normalized === "weekly") {
     return "weekly";
   }
 
   if (normalized === "monthly") {
     return "monthly";
+  }
+
+  if (normalized === "other") {
+    return "other";
   }
 
   return "";
@@ -115,6 +125,162 @@ function toFormState(item: TaskTemplateItem): TaskFormState {
     dayOfMonth: item.DayOfMonth ? String(item.DayOfMonth) : "",
     personEmail: item.PersonEmail ?? item.Person?.EMail ?? item.Person?.Email ?? "",
   };
+}
+
+interface PeriodOption {
+  value: string;
+  label: string;
+  year: number;
+  monthIndex: number;
+}
+
+function formatPeriodValue(year: number, monthIndex: number): string {
+  return `${year}${String(monthIndex + 1).padStart(2, "0")}`;
+}
+
+function buildPeriodOptions(): PeriodOption[] {
+  const now = new Date();
+  const currentMonthDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const currentOption: PeriodOption = {
+    value: formatPeriodValue(currentMonthDate.getFullYear(), currentMonthDate.getMonth()),
+    label: `${currentMonthDate.toLocaleString("en-US", { month: "long" })} ${currentMonthDate.getFullYear()}`,
+    year: currentMonthDate.getFullYear(),
+    monthIndex: currentMonthDate.getMonth(),
+  };
+
+  const nextOption: PeriodOption = {
+    value: formatPeriodValue(nextMonthDate.getFullYear(), nextMonthDate.getMonth()),
+    label: `${nextMonthDate.toLocaleString("en-US", { month: "long" })} ${nextMonthDate.getFullYear()}`,
+    year: nextMonthDate.getFullYear(),
+    monthIndex: nextMonthDate.getMonth(),
+  };
+
+  return [currentOption, nextOption];
+}
+
+function dateToDateOnlyString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value: string): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  return new Date(year, monthIndex, day);
+}
+
+function resolveWeekdayIndex(value: string): number | null {
+  const normalized = value.trim().toLowerCase();
+  const weekdayMap: Record<string, number> = {
+    sunday: 0,
+    sun: 0,
+    monday: 1,
+    mon: 1,
+    tuesday: 2,
+    tue: 2,
+    tues: 2,
+    wednesday: 3,
+    wed: 3,
+    thursday: 4,
+    thu: 4,
+    thur: 4,
+    thurs: 4,
+    friday: 5,
+    fri: 5,
+    saturday: 6,
+    sat: 6,
+  };
+
+  return weekdayMap[normalized] ?? null;
+}
+
+function buildDatesForMonth(year: number, monthIndex: number, predicate: (date: Date) => boolean): Date[] {
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  const result: Date[] = [];
+
+  for (let day = 1; day <= lastDay; day += 1) {
+    const date = new Date(year, monthIndex, day);
+    if (predicate(date)) {
+      result.push(date);
+    }
+  }
+
+  return result;
+}
+
+function buildTaskDatesForTemplate(
+  template: TaskTemplateItem,
+  period: PeriodOption,
+  selectedOtherDate: Date | null,
+): Date[] {
+  const mode = normalizeDeadlineMode(template.DeadlineType ?? "");
+
+  if (mode === "daily") {
+    return buildDatesForMonth(period.year, period.monthIndex, (date) => {
+      const day = date.getDay();
+      return day >= 1 && day <= 5;
+    });
+  }
+
+  if (mode === "weekly") {
+    const selectedDays = new Set(
+      normalizeMultiChoiceValue(template.DaysOfWeek)
+        .map(resolveWeekdayIndex)
+        .filter((value): value is number => value !== null),
+    );
+
+    if (selectedDays.size === 0) {
+      return [];
+    }
+
+    return buildDatesForMonth(period.year, period.monthIndex, (date) => selectedDays.has(date.getDay()));
+  }
+
+  if (mode === "monthly") {
+    const lastDay = new Date(period.year, period.monthIndex + 1, 0).getDate();
+    const rawDay = Number(template.DayOfMonth);
+    if (!Number.isInteger(rawDay) || rawDay < 1) {
+      return [];
+    }
+
+    const day = Math.min(rawDay, lastDay);
+    return [new Date(period.year, period.monthIndex, day)];
+  }
+
+  if (mode === "other") {
+    return selectedOtherDate ? [selectedOtherDate] : [];
+  }
+
+  return [];
+}
+
+function dedupeDates(dates: Date[]): Date[] {
+  const seen = new Set<string>();
+  const unique: Date[] = [];
+
+  for (const date of dates) {
+    const key = dateToDateOnlyString(date);
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(date);
+    }
+  }
+
+  return unique;
 }
 
 async function buildPayload(form: TaskFormState): Promise<TaskTemplatePayload> {
@@ -187,9 +353,11 @@ function FormCheckboxes({
 }
 
 export default function Template() {
+  const periodOptions = buildPeriodOptions();
   const [items, setItems] = useState<TaskTemplateItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [deadlineTypeChoices, setDeadlineTypeChoices] = useState<string[]>([]);
@@ -197,6 +365,9 @@ export default function Template() {
   const [createForm, setCreateForm] = useState<TaskFormState>(EMPTY_FORM);
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<TaskFormState>(EMPTY_FORM);
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [generatePeriod, setGeneratePeriod] = useState<string>(periodOptions[0].value);
+  const [otherDate, setOtherDate] = useState<string>("");
 
   const loadTemplateItems = useCallback(async () => {
     setIsLoading(true);
@@ -317,8 +488,103 @@ export default function Template() {
     }
   }
 
+  async function handleGenerateTasks(): Promise<void> {
+    setIsGenerating(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const activeTemplates = items.filter((item) => item.IsActive !== false);
+      if (activeTemplates.length === 0) {
+        throw new Error("No active template tasks found.");
+      }
+
+      const selectedPeriod = periodOptions.find((option) => option.value === generatePeriod);
+      if (!selectedPeriod) {
+        throw new Error("Please choose a valid period.");
+      }
+
+      const usesOtherType = activeTemplates.some((item) => normalizeDeadlineMode(item.DeadlineType ?? "") === "other");
+      const selectedOtherDate = parseDateInput(otherDate);
+
+      if (usesOtherType) {
+        if (!selectedOtherDate) {
+          throw new Error("Please select a date for templates with DeadlineType = Other.");
+        }
+
+        const sameMonth =
+          selectedOtherDate.getFullYear() === selectedPeriod.year && selectedOtherDate.getMonth() === selectedPeriod.monthIndex;
+        if (!sameMonth) {
+          throw new Error(`The selected Other date must be within ${selectedPeriod.value}.`);
+        }
+      }
+
+      const tasksToCreate: Array<{ template: TaskTemplateItem; deadlineDate: Date }> = [];
+      for (const template of activeTemplates) {
+        const dates = dedupeDates(buildTaskDatesForTemplate(template, selectedPeriod, selectedOtherDate));
+        for (const deadlineDate of dates) {
+          tasksToCreate.push({ template, deadlineDate });
+        }
+      }
+
+      if (tasksToCreate.length === 0) {
+        throw new Error("No tasks were generated. Check DeadlineType and related date settings in templates.");
+      }
+
+      let createdCount = 0;
+      let failedCount = 0;
+      const errors: string[] = [];
+
+      for (const task of tasksToCreate) {
+        const personEmail = (task.template.PersonEmail ?? task.template.Person?.EMail ?? task.template.Person?.Email ?? "").trim();
+        const payload: TaskPayload = {
+          Period: Number(selectedPeriod.value),
+          Title: (task.template.Title ?? "").trim() || "Untitled task",
+          DeadlineDate: dateToDateOnlyString(task.deadlineDate),
+          PersonEmail: personEmail || null,
+        };
+
+        if (personEmail) {
+          try {
+            const personId = await resolvePersonIdByEmail(personEmail);
+            if (personId !== null) {
+              payload.PersonId = personId;
+            }
+          } catch {
+            if (errors.length < 6) {
+              errors.push(
+                `Could not resolve user for "${personEmail}" (${task.template.Title ?? "Untitled"}). Creating without Person lookup.`,
+              );
+            }
+          }
+        }
+
+        try {
+          await createTaskItem(payload);
+          createdCount += 1;
+        } catch (error) {
+          failedCount += 1;
+          if (errors.length < 6) {
+            errors.push(`Failed to create "${String(payload.Title)}" (${String(payload.DeadlineDate)}): ${extractErrorMessage(error)}`);
+          }
+        }
+      }
+
+      setIsGenerateModalOpen(false);
+      setStatusMessage(`Generated ${createdCount} task(s) for period ${selectedPeriod.value}.${failedCount ? ` ${failedCount} failed.` : ""}`);
+      if (errors.length > 0) {
+        setErrorMessage(errors.join(" "));
+      }
+    } catch (error) {
+      setErrorMessage(extractErrorMessage(error));
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
   const createMode = normalizeDeadlineMode(createForm.deadlineType);
   const editMode = normalizeDeadlineMode(editForm.deadlineType);
+  const hasOtherTemplates = items.some((item) => item.IsActive !== false && normalizeDeadlineMode(item.DeadlineType ?? "") === "other");
 
   return (
     <section className="h-full p-8 text-slate-800">
@@ -328,14 +594,28 @@ export default function Template() {
           <p className="mt-1 text-sm text-slate-500">Manage all tasks from the TaskTemplate list.</p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void loadTemplateItems()}
-          className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isLoading || isSaving}
-        >
-          {isLoading ? "Loading..." : "Refresh"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setIsGenerateModalOpen(true);
+              setErrorMessage(null);
+              setStatusMessage(null);
+            }}
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isLoading || isSaving || isGenerating}
+          >
+            Generate
+          </button>
+          <button
+            type="button"
+            onClick={() => void loadTemplateItems()}
+            className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isLoading || isSaving || isGenerating}
+          >
+            {isLoading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
       </header>
 
       {errorMessage ? (
@@ -568,6 +848,68 @@ export default function Template() {
               })}
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {isGenerateModalOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <h2 className="text-xl font-semibold text-slate-900">Generate Tasks</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Select period and generate tasks into the <span className="font-medium">Tasks</span> list from active templates.
+            </p>
+
+            <div className="mt-4">
+              <label htmlFor="generate-period" className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Period
+              </label>
+              <select
+                id="generate-period"
+                value={generatePeriod}
+                onChange={(event) => setGeneratePeriod(event.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                {periodOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} ({option.value})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-4">
+              <label htmlFor="generate-other-date" className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Date For "Other" Type {hasOtherTemplates ? "(Required)" : "(Optional)"}
+              </label>
+              <input
+                id="generate-other-date"
+                type="date"
+                value={otherDate}
+                onChange={(event) => setOtherDate(event.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <p className="mt-1 text-xs text-slate-500">Used only for templates where DeadlineType = Other.</p>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsGenerateModalOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                disabled={isGenerating}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleGenerateTasks()}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isGenerating}
+              >
+                {isGenerating ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

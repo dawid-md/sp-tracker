@@ -67,7 +67,7 @@ function UserIcon() {
   );
 }
 
-export type AppView = "today" | "template";
+export type AppView = "today" | "allTasks" | "template";
 
 interface LeftPanelProps {
   activeView: AppView;
@@ -112,6 +112,15 @@ export default function LeftPanel({ activeView, onSelectView }: LeftPanelProps) 
         >
           <DatabaseIcon />
           <span>Template</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelectView("allTasks")}
+          className={getNavButtonClass(activeView === "allTasks")}
+        >
+          <ListIcon />
+          <span>All Tasks</span>
         </button>
 
         <button
