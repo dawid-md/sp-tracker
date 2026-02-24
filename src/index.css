@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --page-bg: #f8fafc;
+  --sidebar-bg: #08162f;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --muted: #9fb1cc;
+  --surface-border: rgba(255, 255, 255, 0.1);
+  font-family: "Sora", "Plus Jakarta Sans", "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--page-bg);
+  color: #e5eefc;
+}
