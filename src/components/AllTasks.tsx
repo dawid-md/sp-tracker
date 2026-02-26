@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { extractErrorMessage, fetchTasksItems, type TaskItem } from "../lib/sharepointApi";
+import { deleteTaskItem, extractErrorMessage, fetchTasksItems, type TaskItem } from "../lib/sharepointApi";
 
 interface FilterState {
   search: string;
@@ -81,9 +81,12 @@ function getPersonEmail(item: TaskItem): string {
 export default function AllTasks() {
   const [items, setItems] = useState<TaskItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
 
   const loadAllTasks = useCallback(async () => {
     setIsLoading(true);
@@ -92,6 +95,10 @@ export default function AllTasks() {
     try {
       const listItems = await fetchTasksItems();
       setItems(listItems);
+      setSelectedTaskIds((prev) => {
+        const existingIds = new Set(listItems.map((item) => item.Id));
+        return new Set(Array.from(prev).filter((id) => existingIds.has(id)));
+      });
       setLastUpdated(new Date());
     } catch (error) {
       setErrorMessage(extractErrorMessage(error));
@@ -185,6 +192,82 @@ export default function AllTasks() {
     });
   }, [filters, items]);
 
+  const filteredItemIds = useMemo(() => filteredItems.map((item) => item.Id), [filteredItems]);
+  const selectedCount = selectedTaskIds.size;
+  const selectedVisibleCount = useMemo(() => filteredItemIds.filter((id) => selectedTaskIds.has(id)).length, [filteredItemIds, selectedTaskIds]);
+  const allVisibleSelected = filteredItemIds.length > 0 && selectedVisibleCount === filteredItemIds.length;
+
+  function toggleSelectTask(itemId: number): void {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible(): void {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of filteredItemIds) {
+          next.delete(id);
+        }
+      } else {
+        for (const id of filteredItemIds) {
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function handleDeleteSelected(): Promise<void> {
+    if (selectedCount === 0) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${selectedCount} selected task(s)?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    const idsToDelete = Array.from(selectedTaskIds);
+    let deletedCount = 0;
+    const errors: string[] = [];
+
+    for (const taskId of idsToDelete) {
+      try {
+        await deleteTaskItem(taskId);
+        deletedCount += 1;
+      } catch (error) {
+        if (errors.length < 6) {
+          errors.push(`Task ${taskId}: ${extractErrorMessage(error)}`);
+        }
+      }
+    }
+
+    await loadAllTasks();
+
+    if (deletedCount > 0) {
+      setStatusMessage(`Deleted ${deletedCount} task(s).`);
+    }
+    if (errors.length > 0) {
+      setErrorMessage(`Some tasks could not be deleted. ${errors.join(" ")}`);
+    } else {
+      setSelectedTaskIds(new Set());
+    }
+
+    setIsDeleting(false);
+  }
+
   return (
     <section className="h-full p-8 text-slate-800">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -195,14 +278,25 @@ export default function AllTasks() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void loadAllTasks()}
-          className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isLoading}
-        >
-          {isLoading ? "Loading..." : "Refresh"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleDeleteSelected()}
+            className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isLoading || isDeleting || selectedCount === 0}
+          >
+            {isDeleting ? "Deleting..." : `Delete Selected${selectedCount > 0 ? ` (${selectedCount})` : ""}`}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void loadAllTasks()}
+            className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isLoading || isDeleting}
+          >
+            {isLoading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
       </header>
 
       <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -273,9 +367,13 @@ export default function AllTasks() {
         </button>
       </div>
 
+      {statusMessage ? (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{statusMessage}</div>
+      ) : null}
+
       {errorMessage ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          Failed to load tasks: {errorMessage}
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {errorMessage}
         </div>
       ) : null}
 
@@ -292,6 +390,15 @@ export default function AllTasks() {
           <table className="min-w-full text-sm text-slate-700">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="w-12 px-4 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    disabled={filteredItemIds.length === 0}
+                    title="Select all visible tasks"
+                  />
+                </th>
                 <th className="px-4 py-3">Period</th>
                 <th className="px-4 py-3">Title</th>
                 <th className="px-4 py-3">Deadline Date</th>
@@ -304,6 +411,14 @@ export default function AllTasks() {
             <tbody>
               {filteredItems.map((item) => (
                 <tr key={item.Id} className="border-t border-slate-200">
+                  <td className="px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedTaskIds.has(item.Id)}
+                      onChange={() => toggleSelectTask(item.Id)}
+                      title={`Select task ${item.Id}`}
+                    />
+                  </td>
                   <td className="px-4 py-3">{item.Period ?? ""}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{item.Title ?? "Untitled task"}</td>
                   <td className="px-4 py-3">{formatDeadlineDate(item.DeadlineDate)}</td>
@@ -316,6 +431,13 @@ export default function AllTasks() {
             </tbody>
           </table>
         </div>
+      ) : null}
+
+      {selectedCount > 0 ? (
+        <p className="mt-4 text-xs text-slate-500">
+          Selected: {selectedCount} task(s)
+          {filteredItemIds.length > 0 ? `, visible selected: ${selectedVisibleCount}/${filteredItemIds.length}` : ""}
+        </p>
       ) : null}
 
       {lastUpdated ? <p className="mt-4 text-xs text-slate-400">Last updated: {lastUpdated.toLocaleTimeString()}</p> : null}

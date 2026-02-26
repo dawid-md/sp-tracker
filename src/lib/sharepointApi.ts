@@ -27,6 +27,7 @@ export interface TaskTemplateItem {
   DaysOfWeek?: MultiChoiceValue;
   PersonEmail?: string;
   DayOfMonth?: number | null;
+  WD?: number | null;
   Person?: SharePointPerson;
 }
 
@@ -84,7 +85,7 @@ export function normalizeMultiChoiceValue(value: MultiChoiceValue): string[] {
 export async function fetchTaskTemplateItems(): Promise<TaskTemplateItem[]> {
   const endpoint =
     `${buildListApiUrl(TEMPLATE_LIST_TITLE, "/items")}` +
-    "?$select=Id,Title,IsActive,DeadlineType,DaysOfWeek,PersonEmail,DayOfMonth,Person/Title,Person/EMail" +
+    "?$select=Id,Title,IsActive,DeadlineType,DaysOfWeek,PersonEmail,DayOfMonth,WD,Person/Title,Person/EMail" +
     "&$expand=Person&$orderby=Id asc&$top=100";
 
   const response = await fetch(endpoint, {

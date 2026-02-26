@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { deleteTaskItem, extractErrorMessage, fetchTasksItems, resolvePersonIdByEmail, type TaskItem, type TaskPayload, updateTaskItem } from "../lib/sharepointApi";
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, PencilIcon, RefreshIcon, SaveIcon, TrashIcon, XIcon } from "./ui/icons";
 
 function parseSharePointDate(value: string | undefined): Date | null {
   if (!value) {
@@ -111,64 +112,6 @@ function toEditForm(item: TaskItem): TaskEditForm {
     status: normalizeStatusValue(item.Status),
     comment: item.Comment ?? "",
   };
-}
-
-function PencilIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path
-        d="m4.2 16.8-.9 4 4-.9 10-10-3.1-3.1-10 10ZM12.6 6l3.1 3.1M15.5 4.8l.6-.6a1.8 1.8 0 0 1 2.6 2.6l-.6.6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path
-        d="M4.7 6.7h14.6M9.2 6.7v-1a1.5 1.5 0 0 1 1.5-1.5h2.6a1.5 1.5 0 0 1 1.5 1.5v1M8.2 19.8a1.5 1.5 0 0 0 1.5 1.4h4.6a1.5 1.5 0 0 0 1.5-1.4l.8-13.1H7.4l.8 13.1Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path d="m5 12 4.4 4.4L19 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
-      <path
-        d="M20 6v5h-5M4 18v-5h5M6.7 9.2A7 7 0 0 1 20 11M17.3 14.8A7 7 0 0 1 4 13"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
 
 export default function Today() {
@@ -307,34 +250,37 @@ export default function Today() {
 
   return (
     <section className="h-full p-8 text-slate-800">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
+      <header className="mb-6 grid grid-cols-1 items-center gap-4 md:grid-cols-[1fr_auto_1fr]">
+        <div className="md:justify-self-start">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">{headerTitle}</h1>
           <p className="mt-1 text-sm text-slate-500">Tasks due on {todayLabel}</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center gap-3 md:justify-self-center">
           <button
             type="button"
             onClick={() => setSelectedDate((prev) => addDays(prev, -1))}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex h-11 w-14 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
             aria-label="Previous day"
           >
-            ←
+            <ArrowLeftIcon />
           </button>
           <button
             type="button"
             onClick={() => setSelectedDate((prev) => addDays(prev, 1))}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex h-11 w-14 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
             aria-label="Next day"
           >
-            →
+            <ArrowRightIcon />
           </button>
+        </div>
+
+        <div className="flex items-center justify-start md:justify-self-end">
           <button
             type="button"
             onClick={() => void loadTodayItems()}
             className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isLoading}
+            disabled={isLoading}
           >
             {isLoading ? "Loading..." : "Refresh"}
           </button>
@@ -438,9 +384,9 @@ export default function Today() {
                             onClick={() => void handleSaveEdit(item.Id)}
                             disabled={isSaving}
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            title="Save"
+                            title="Save changes"
                           >
-                            <CheckIcon />
+                            <SaveIcon />
                           </button>
                           <button
                             type="button"
@@ -511,3 +457,4 @@ export default function Today() {
     </section>
   );
 }
+
